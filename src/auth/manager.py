@@ -6,6 +6,7 @@ from src.database.models import AuthType, Credential
 from src.database.repositories import CredentialsRepository
 from src.auth.handlers.app_password import AppPasswordHandler
 from src.auth.handlers.oauth import OAuthHandler
+from src.auth.handlers.zoho_mail import ZohoMailHandler
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 class AuthMethod(Enum):
     APP_PASSWORD = "app_password"
     OAUTH = "oauth"
+    ZOHO = "zoho"
 
 
 class AuthManager:
@@ -30,6 +32,7 @@ class AuthManager:
 
         self._app_password_handler = AppPasswordHandler()
         self._oauth_handler = OAuthHandler()
+        self._zoho_handler = ZohoMailHandler()
         self._active_method: Optional[AuthMethod] = None
         self._initialized = True
 
@@ -39,6 +42,8 @@ class AuthManager:
             return self._app_password_handler.is_authenticated
         elif self._active_method == AuthMethod.OAUTH:
             return self._oauth_handler.is_authenticated
+        elif self._active_method == AuthMethod.ZOHO:
+            return self._zoho_handler.is_authenticated
         return False
 
     @property
@@ -47,6 +52,8 @@ class AuthManager:
             return self._app_password_handler.current_email
         elif self._active_method == AuthMethod.OAUTH:
             return self._oauth_handler.current_email
+        elif self._active_method == AuthMethod.ZOHO:
+            return self._zoho_handler.current_email
         return None
 
     @property
@@ -61,31 +68,59 @@ class AuthManager:
     def oauth_handler(self) -> OAuthHandler:
         return self._oauth_handler
 
-    def has_stored_credentials(self) -> bool:
+    @property
+    def zoho_handler(self) -> ZohoMailHandler:
+        return self._zoho_handler
+
+    def has_stored_credentials(self, email: Optional[str] = None) -> bool:
+        """
+        Check if credentials exist for a specific email.
+        If email is None, checks if ANY credentials exist (for backward compatibility).
+        """
+        if email:
+            return CredentialsRepository.find_by_email(email) is not None
         return CredentialsRepository.find_first() is not None
 
-    def get_stored_auth_type(self) -> Optional[AuthType]:
-        credential = CredentialsRepository.find_first()
+    def get_stored_auth_type(self, email: Optional[str] = None) -> Optional[AuthType]:
+        """
+        Get the auth type for a specific email.
+        If email is None, gets the first credential's auth type (for backward compatibility).
+        """
+        if email:
+            credential = CredentialsRepository.find_by_email(email)
+        else:
+            credential = CredentialsRepository.find_first()
+        
         if credential:
             return credential.auth_type
         return None
 
-    def auto_authenticate(self) -> Tuple[bool, str]:
-        credential = CredentialsRepository.find_first()
+    def authenticate_user_with_stored_credentials(self, email: str) -> Tuple[bool, str]:
+        """
+        Authenticate a specific user using their stored credentials.
+        This is called AFTER the user enters their email on the login screen.
+        """
+        credential = CredentialsRepository.find_by_email(email)
 
         if not credential:
-            return False, "No stored credentials found"
+            return False, f"No stored credentials found for {email}"
 
         if credential.auth_type == AuthType.APP_PASSWORD:
-            success, message = self._app_password_handler.authenticate_from_stored()
+            success, message = self._app_password_handler.authenticate_from_stored(email)
             if success:
                 self._active_method = AuthMethod.APP_PASSWORD
             return success, message
 
         elif credential.auth_type == AuthType.OAUTH:
-            success, message = self._oauth_handler.authenticate_from_stored()
+            success, message = self._oauth_handler.authenticate_from_stored(email)
             if success:
                 self._active_method = AuthMethod.OAUTH
+            return success, message
+
+        elif credential.auth_type == AuthType.ZOHO:
+            success, message = self._zoho_handler.authenticate_from_stored(email)
+            if success:
+                self._active_method = AuthMethod.ZOHO
             return success, message
 
         return False, "Unknown authentication type"
@@ -98,17 +133,23 @@ class AuthManager:
 
         return success, message
 
-    def get_oauth_authorization_url(self) -> Tuple[Optional[str], str]:
-        return self._oauth_handler.get_authorization_url()
-
-    def open_oauth_in_browser(self) -> Tuple[bool, str]:
-        return self._oauth_handler.open_authorization_in_browser()
-
-    def authenticate_with_oauth_code(self, authorization_code: str) -> Tuple[bool, str]:
-        success, message = self._oauth_handler.authenticate_with_code(authorization_code)
+    def authenticate_with_oauth(self) -> Tuple[bool, str]:
+        """
+        Automatic OAuth authentication with callback server.
+        Opens browser, waits for user authorization, captures code automatically.
+        """
+        success, message = self._oauth_handler.authenticate()
 
         if success:
             self._active_method = AuthMethod.OAUTH
+
+        return success, message
+
+    def authenticate_with_zoho(self, email: str, password: str) -> Tuple[bool, str]:
+        success, message = self._zoho_handler.authenticate(email, password)
+
+        if success:
+            self._active_method = AuthMethod.ZOHO
 
         return success, message
 
@@ -128,11 +169,15 @@ class AuthManager:
     def get_imap_connection(self):
         if self._active_method == AuthMethod.APP_PASSWORD:
             return self._app_password_handler.get_imap_connection()
+        elif self._active_method == AuthMethod.ZOHO:
+            return self._zoho_handler.get_imap_connection()
         return None
 
     def get_smtp_connection(self):
         if self._active_method == AuthMethod.APP_PASSWORD:
             return self._app_password_handler.get_smtp_connection()
+        elif self._active_method == AuthMethod.ZOHO:
+            return self._zoho_handler.get_smtp_connection()
         return None
 
     def verify_connection(self) -> bool:
@@ -140,6 +185,8 @@ class AuthManager:
             return self._app_password_handler.verify_connection()
         elif self._active_method == AuthMethod.OAUTH:
             return self._oauth_handler.verify_connection()
+        elif self._active_method == AuthMethod.ZOHO:
+            return self._zoho_handler.verify_connection()
         return False
 
     def logout(self) -> None:
@@ -147,6 +194,8 @@ class AuthManager:
             self._app_password_handler.logout()
         elif self._active_method == AuthMethod.OAUTH:
             self._oauth_handler.logout()
+        elif self._active_method == AuthMethod.ZOHO:
+            self._zoho_handler.logout()
 
         self._active_method = None
         logger.info("User logged out")

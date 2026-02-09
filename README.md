@@ -3,9 +3,6 @@
 
 A terminal-based email client with Google Calendar integration. Connects to Gmail using OAuth 2.0 or App Password authentication.
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
-
 ## Features
 
 ### Email Management
@@ -36,6 +33,9 @@ A terminal-based email client with Google Calendar integration. Connects to Gmai
 
 - Python 3.10+
 - MySQL 8.0+
+- Rich v13.7.0
+- mysql-connector-python v8.3.0
+- Cryptography v42.0.5
 - Gmail account with:
   - 2FA enabled (for App Password), or
   - OAuth 2.0 credentials (for full features)

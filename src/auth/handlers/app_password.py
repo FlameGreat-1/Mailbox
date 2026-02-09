@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AppPasswordSession:
     email: str
+    app_password: str
     imap_connection: Optional[imaplib.IMAP4_SSL] = None
     smtp_connection: Optional[smtplib.SMTP] = None
     is_authenticated: bool = False
@@ -43,6 +44,7 @@ class AppPasswordHandler:
 
             self._session = AppPasswordSession(
                 email=email,
+                app_password=app_password,
                 imap_connection=imap_conn,
                 is_authenticated=True,
             )
@@ -62,11 +64,11 @@ class AppPasswordHandler:
             logger.error(f"Authentication failed: {e}")
             return False, f"Authentication failed: {str(e)}"
 
-    def authenticate_from_stored(self) -> Tuple[bool, str]:
-        credential = CredentialsRepository.find_first()
+    def authenticate_from_stored(self, email: str) -> Tuple[bool, str]:
+        credential = CredentialsRepository.find_by_email(email)
 
         if not credential:
-            return False, "No stored credentials found"
+            return False, f"No stored credentials found for {email}"
 
         if credential.auth_type != AuthType.APP_PASSWORD:
             return False, "Stored credential is not app password type"
@@ -96,6 +98,7 @@ class AppPasswordHandler:
 
     def get_smtp_connection(self) -> Optional[smtplib.SMTP]:
         if not self._session or not self._session.is_authenticated:
+            logger.error("get_smtp_connection: Not authenticated")
             return None
 
         if self._session.smtp_connection:
@@ -105,23 +108,19 @@ class AppPasswordHandler:
             except Exception:
                 self._session.smtp_connection = None
 
-        credential = CredentialsRepository.find_by_email(self._session.email)
-        if not credential:
-            return None
-
         try:
-            app_password = decrypt(credential.encrypted_token)
-            smtp = smtplib.SMTP(settings.email.smtp_host, settings.email.smtp_port)
+            smtp = smtplib.SMTP(settings.email.smtp_host, settings.email.smtp_port, timeout=30)
             smtp.ehlo()
             smtp.starttls()
             smtp.ehlo()
-            smtp.login(self._session.email, app_password)
+            smtp.login(self._session.email, self._session.app_password)
 
             self._session.smtp_connection = smtp
+            logger.info(f"SMTP connection established for: {self._session.email}")
             return smtp
 
         except Exception as e:
-            logger.error(f"SMTP connection failed: {e}")
+            logger.error(f"SMTP connection failed for {self._session.email}: {e}")
             return None
 
     def get_imap_connection(self) -> Optional[imaplib.IMAP4_SSL]:
@@ -135,13 +134,8 @@ class AppPasswordHandler:
             except Exception:
                 self._session.imap_connection = None
 
-        credential = CredentialsRepository.find_by_email(self._session.email)
-        if not credential:
-            return None
-
         try:
-            app_password = decrypt(credential.encrypted_token)
-            imap = self._connect_imap(self._session.email, app_password)
+            imap = self._connect_imap(self._session.email, self._session.app_password)
             self._session.imap_connection = imap
             return imap
 

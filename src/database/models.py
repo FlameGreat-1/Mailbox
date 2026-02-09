@@ -7,6 +7,7 @@ from enum import Enum
 class AuthType(Enum):
     OAUTH = "oauth"
     APP_PASSWORD = "app_password"
+    ZOHO = "zoho"
 
 
 @dataclass
@@ -123,7 +124,7 @@ class Email:
             "is_read": self.is_read,
             "labels": json.dumps(self.labels),
             "has_attachments": self.has_attachments,
-            "attachments_meta": self.attachments_meta,
+            "attachments_meta": self.attachments_meta if self.attachments_meta else None,
             "folder": self.folder,
             "synced_at": self.synced_at,
         }

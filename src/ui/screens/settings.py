@@ -123,14 +123,21 @@ class SettingsScreen:
             oauth_text.append(f"  {Symbols.CHECK} ", style="success")
             oauth_text.append("Calendar access enabled", style="text.dim")
             self._console.print(oauth_text)
-        elif auth_method == AuthMethod.APP_PASSWORD:
+        elif auth_method in [AuthMethod.APP_PASSWORD, AuthMethod.ZOHO]:
             self._console.print()
             app_pass_text = Text()
             app_pass_text.append(f"  {Symbols.INFO} ", style="info")
-            app_pass_text.append(
-                "Calendar access requires OAuth authentication",
-                style="text.dim"
-            )
+            
+            if auth_method == AuthMethod.ZOHO:
+                app_pass_text.append(
+                    "Email access only (Zoho Mail does not support calendar via IMAP)",
+                    style="text.dim"
+                )
+            else:
+                app_pass_text.append(
+                    "Calendar access requires OAuth authentication",
+                    style="text.dim"
+                )
             self._console.print(app_pass_text)
 
         self._console.print()
@@ -229,7 +236,7 @@ class SettingsScreen:
                 f"[warning]{Symbols.WARNING} Warning[/warning]\n\n"
                 f"[text]This will delete all locally cached emails and calendar events.[/text]\n"
                 f"[text.dim]Your credentials will be preserved.[/text.dim]\n"
-                f"[text.dim]Data will be re-synced from Gmail on next sync.[/text.dim]"
+                f"[text.dim]Data will be re-synced from your email provider on next sync.[/text.dim]"
             ),
             border_style="warning",
             padding=(1, 2),

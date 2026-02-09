@@ -41,18 +41,19 @@ class EmailClient:
         return self.BASE_DELAY * (2 ** attempt)
 
     def _get_imap_provider(self) -> Optional[IMAPProvider]:
-        if self._auth_manager.active_method != AuthMethod.APP_PASSWORD:
+        if self._auth_manager.active_method not in [AuthMethod.APP_PASSWORD, AuthMethod.ZOHO]:
             return None
 
         connection = self._auth_manager.get_imap_connection()
         if connection:
-            self._imap_provider = IMAPProvider(connection)
+            use_gmail_folders = self._auth_manager.active_method == AuthMethod.APP_PASSWORD
+            self._imap_provider = IMAPProvider(connection, use_gmail_folders=use_gmail_folders)
             return self._imap_provider
 
         return None
 
     def _get_smtp_provider(self) -> Optional[SMTPProvider]:
-        if self._auth_manager.active_method != AuthMethod.APP_PASSWORD:
+        if self._auth_manager.active_method not in [AuthMethod.APP_PASSWORD, AuthMethod.ZOHO]:
             return None
 
         connection = self._auth_manager.get_smtp_connection()
@@ -106,7 +107,7 @@ class EmailClient:
                             include_body=True,
                         )
 
-                elif self._auth_manager.active_method == AuthMethod.APP_PASSWORD:
+                elif self._auth_manager.active_method in [AuthMethod.APP_PASSWORD, AuthMethod.ZOHO]:
                     self._imap_provider = None
                     provider = self._get_imap_provider()
                     if provider:
@@ -167,7 +168,7 @@ class EmailClient:
                             include_body=False,
                         )
 
-                elif self._auth_manager.active_method == AuthMethod.APP_PASSWORD:
+                elif self._auth_manager.active_method in [AuthMethod.APP_PASSWORD, AuthMethod.ZOHO]:
                     self._imap_provider = None
                     provider = self._get_imap_provider()
                     if provider:
@@ -212,7 +213,7 @@ class EmailClient:
                             self._sync_emails_to_db([email_obj])
                         return email_obj
 
-                elif self._auth_manager.active_method == AuthMethod.APP_PASSWORD:
+                elif self._auth_manager.active_method in [AuthMethod.APP_PASSWORD, AuthMethod.ZOHO]:
                     self._imap_provider = None
                     provider = self._get_imap_provider()
                     if provider:
@@ -269,7 +270,7 @@ class EmailClient:
                     if provider:
                         return provider.search_messages(self.current_email, query, limit)
 
-                elif self._auth_manager.active_method == AuthMethod.APP_PASSWORD:
+                elif self._auth_manager.active_method in [AuthMethod.APP_PASSWORD, AuthMethod.ZOHO]:
                     self._imap_provider = None
                     provider = self._get_imap_provider()
                     if provider:
@@ -329,7 +330,7 @@ class EmailClient:
                             attachments=attachments,
                         )
 
-                elif self._auth_manager.active_method == AuthMethod.APP_PASSWORD:
+                elif self._auth_manager.active_method in [AuthMethod.APP_PASSWORD, AuthMethod.ZOHO]:
                     self._smtp_provider = None
                     provider = self._get_smtp_provider()
                     if provider:
@@ -390,7 +391,7 @@ class EmailClient:
                             cc_emails=cc_emails,
                         )
 
-                elif self._auth_manager.active_method == AuthMethod.APP_PASSWORD:
+                elif self._auth_manager.active_method in [AuthMethod.APP_PASSWORD, AuthMethod.ZOHO]:
                     self._smtp_provider = None
                     provider = self._get_smtp_provider()
                     if provider:
@@ -430,7 +431,7 @@ class EmailClient:
                     if provider:
                         return provider.mark_as_read(message_id)
 
-                elif self._auth_manager.active_method == AuthMethod.APP_PASSWORD:
+                elif self._auth_manager.active_method in [AuthMethod.APP_PASSWORD, AuthMethod.ZOHO]:
                     self._imap_provider = None
                     provider = self._get_imap_provider()
                     if provider:
@@ -463,7 +464,7 @@ class EmailClient:
                     if provider:
                         return provider.mark_as_unread(message_id)
 
-                elif self._auth_manager.active_method == AuthMethod.APP_PASSWORD:
+                elif self._auth_manager.active_method in [AuthMethod.APP_PASSWORD, AuthMethod.ZOHO]:
                     self._imap_provider = None
                     provider = self._get_imap_provider()
                     if provider:
@@ -515,7 +516,7 @@ class EmailClient:
                             save_file.write_bytes(attachment_data["data"])
                             return True, f"Saved to {save_file}"
 
-                elif self._auth_manager.active_method == AuthMethod.APP_PASSWORD:
+                elif self._auth_manager.active_method in [AuthMethod.APP_PASSWORD, AuthMethod.ZOHO]:
                     self._imap_provider = None
                     provider = self._get_imap_provider()
                     if provider:

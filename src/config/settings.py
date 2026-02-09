@@ -24,6 +24,7 @@ class GoogleConfig:
     client_id: Optional[str]
     client_secret: Optional[str]
     redirect_uri: str
+    callback_port: int
     scopes: tuple
 
 
@@ -33,6 +34,16 @@ class EmailConfig:
     imap_port: int
     smtp_host: str
     smtp_port: int
+    connection_timeout: int = 30
+
+
+@dataclass(frozen=True)
+class ZohoConfig:
+    imap_host: str
+    imap_port: int
+    smtp_host: str
+    smtp_port: int
+    connection_timeout: int = 30
 
 
 @dataclass(frozen=True)
@@ -66,7 +77,8 @@ class Settings:
         self.google = GoogleConfig(
             client_id=os.getenv("GOOGLE_CLIENT_ID"),
             client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
-            redirect_uri=os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8080"),
+            redirect_uri=os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8080/callback"),
+            callback_port=int(os.getenv("OAUTH_CALLBACK_PORT", "8080")),
             scopes=(
                 "https://www.googleapis.com/auth/gmail.readonly",
                 "https://www.googleapis.com/auth/gmail.send",
@@ -80,6 +92,13 @@ class Settings:
             imap_port=993,
             smtp_host="smtp.gmail.com",
             smtp_port=587,
+        )
+
+        self.zoho = ZohoConfig(
+            imap_host="imap.zoho.com",
+            imap_port=993,
+            smtp_host="smtp.zoho.com",
+            smtp_port=465,
         )
 
         self.app = AppConfig(

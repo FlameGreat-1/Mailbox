@@ -13,7 +13,7 @@ class CredentialsRepository:
         CREATE TABLE IF NOT EXISTS {cls.TABLE_NAME} (
             id INT AUTO_INCREMENT PRIMARY KEY,
             user_email VARCHAR(255) NOT NULL UNIQUE,
-            auth_type ENUM('oauth', 'app_password') NOT NULL,
+            auth_type ENUM('oauth', 'app_password', 'zoho') NOT NULL,
             encrypted_token TEXT NOT NULL,
             access_token TEXT,
             token_expiry DATETIME,

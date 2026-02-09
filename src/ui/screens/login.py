@@ -30,39 +30,7 @@ class LoginScreen:
             subtitle="Welcome",
         )
 
-        if self._auth_manager.has_stored_credentials():
-            return self._auto_login()
-
         return self._show_auth_options()
-
-    def _auto_login(self) -> Tuple[bool, Optional[str]]:
-        self._console.print()
-        
-        status_text = Text()
-        status_text.append(f"{Symbols.LOADING} ", style="info")
-        status_text.append("Found stored credentials. Authenticating...", style="text")
-        self._console.print(status_text)
-
-        success, message = self._auth_manager.auto_authenticate()
-
-        self._console.print()
-
-        if success:
-            self._console.print(Theme.format_status(message, "success"))
-            return True, self._auth_manager.current_email
-        else:
-            self._console.print(Theme.format_status(message, "error"))
-            self._console.print()
-            
-            retry = self._text_input.prompt_confirm(
-                "Would you like to login with new credentials?",
-                default=True,
-            )
-            
-            if retry:
-                return self._show_auth_options()
-            
-            return False, None
 
     def _show_auth_options(self) -> Tuple[bool, Optional[str]]:
         self._console.print()
@@ -70,8 +38,8 @@ class LoginScreen:
         info_panel = Panel(
             Text.from_markup(
                 f"{Symbols.INFO} [text]Choose your authentication method:[/text]\n\n"
-                f"[text.dim]• [primary]App Password[/primary] - Simple setup, works entirely in terminal[/text.dim]\n"
-                f"[text.dim]• [primary]OAuth 2.0[/primary] - More secure, requires browser for initial setup[/text.dim]"
+                f"[text.dim]• [primary]Sign in with Google[/primary] - Secure OAuth, includes Gmail & Calendar[/text.dim]\n"
+                f"[text.dim]• [primary]Zoho Mail[/primary] - Email + password for Zoho accounts[/text.dim]"
             ),
             border_style="primary",
             padding=(1, 2),
@@ -80,10 +48,13 @@ class LoginScreen:
 
         self._console.print()
 
-        choices = ["App Password (Recommended for CLI)", "OAuth 2.0 (Google Sign-In)"]
+        choices = [
+            "Sign in with Google",
+            "Zoho Mail"
+        ]
         
         if not self._auth_manager.has_oauth_client_secret():
-            choices[1] = "OAuth 2.0 (Not configured - client_secret.json missing)"
+            choices[0] = "Sign in with Google (Not configured - client_secret.json missing)"
 
         choice = self._text_input.prompt_choice(
             "Select authentication method",
@@ -95,8 +66,6 @@ class LoginScreen:
             return False, None
 
         if choice == 1:
-            return self._login_with_app_password()
-        elif choice == 2:
             if not self._auth_manager.has_oauth_client_secret():
                 self._console.print()
                 self._console.print(Theme.format_status(
@@ -115,26 +84,127 @@ class LoginScreen:
                 input("\nPress Enter to continue...")
                 return self._show_auth_options()
             
-            return self._login_with_oauth()
+            return self._login_with_google()
+        elif choice == 2:
+            return self._login_with_zoho()
 
         return False, None
 
-    def _login_with_app_password(self) -> Tuple[bool, Optional[str]]:
+    def _login_with_google(self) -> Tuple[bool, Optional[str]]:
         self._clear_screen()
         self._header.render(
             title=settings.app.app_name,
-            subtitle="App Password Login",
+            subtitle="Sign in with Google",
         )
 
         self._console.print()
         
         info_panel = Panel(
             Text.from_markup(
-                f"{Symbols.INFO} [text]To get an App Password:[/text]\n\n"
-                f"[text.dim]1. Go to [link]https://myaccount.google.com/apppasswords[/link][/text.dim]\n"
-                f"[text.dim]2. Select 'Mail' and your device[/text.dim]\n"
-                f"[text.dim]3. Copy the 16-character password[/text.dim]\n\n"
-                f"[warning]Note: 2-Factor Authentication must be enabled[/warning]"
+                f"{Symbols.INFO} [text]Google Sign-In Process:[/text]\n\n"
+                f"[text.dim]1. Your browser will open automatically[/text.dim]\n"
+                f"[text.dim]2. Sign in with your Google account[/text.dim]\n"
+                f"[text.dim]3. Grant permissions for Gmail and Calendar[/text.dim]\n"
+                f"[text.dim]4. You'll be redirected back automatically[/text.dim]"
+            ),
+            border_style="info",
+            padding=(1, 2),
+        )
+        self._console.print(info_panel)
+
+        self._console.print()
+        
+        proceed = self._text_input.prompt_confirm(
+            "Ready to sign in with Google?",
+            default=True,
+        )
+
+        if not proceed:
+            return False, None
+
+        self._console.print()
+        
+        status_text = Text()
+        status_text.append(f"{Symbols.LOADING} ", style="info")
+        status_text.append("Starting OAuth authentication...", style="text")
+        self._console.print(status_text)
+        
+        self._console.print()
+        self._console.print(Text.from_markup(
+            "[text.dim]→ Opening browser for Google sign-in...[/text.dim]"
+        ))
+        self._console.print(Text.from_markup(
+            "[text.dim]→ Waiting for authorization...[/text.dim]"
+        ))
+        self._console.print()
+        
+        waiting_panel = Panel(
+            Text.from_markup(
+                f"[warning]⏳ Please complete the sign-in process in your browser[/warning]\n\n"
+                f"[text.dim]This may take a few moments...[/text.dim]"
+            ),
+            border_style="warning",
+            padding=(1, 2),
+        )
+        self._console.print(waiting_panel)
+
+        success, message = self._auth_manager.authenticate_with_oauth()
+
+        self._console.print()
+
+        if success:
+            self._console.print(Text("✓ Sign-in successful!", style="success"))
+            self._console.print()
+            
+            self._console.print(Text.from_markup(
+                f"[text.dim]Your account has been connected:[/text.dim]\n"
+                f"[primary]• Gmail access enabled[/primary]\n"
+                f"[primary]• Calendar access enabled[/primary]\n"
+                f"[text.dim]Your credentials are securely encrypted and stored.[/text.dim]"
+            ))
+            
+            input("\nPress Enter to continue...")
+            return True, self._auth_manager.current_email
+        else:
+            self._console.print(Theme.format_status(f"✗ {message}", "error"))
+            self._console.print()
+            
+            if "timeout" in message.lower():
+                self._console.print(Text.from_markup(
+                    "[text.dim]The sign-in process timed out. This can happen if:[/text.dim]\n"
+                    "[text.dim]• You didn't complete the sign-in within 5 minutes[/text.dim]\n"
+                    "[text.dim]• The browser window was closed[/text.dim]\n"
+                    "[text.dim]• Network connectivity issues[/text.dim]"
+                ))
+            elif "cancelled" in message.lower():
+                self._console.print(Text.from_markup(
+                    "[text.dim]Sign-in was cancelled. No changes were made.[/text.dim]"
+                ))
+            
+            self._console.print()
+            retry = self._text_input.prompt_confirm("Would you like to try again?", default=True)
+            
+            if retry:
+                return self._login_with_google()
+            
+            return False, None
+
+    def _login_with_zoho(self) -> Tuple[bool, Optional[str]]:
+        self._clear_screen()
+        self._header.render(
+            title=settings.app.app_name,
+            subtitle="Zoho Mail Login",
+        )
+
+        self._console.print()
+        
+        info_panel = Panel(
+            Text.from_markup(
+                f"{Symbols.INFO} [text]Zoho Mail Authentication:[/text]\n\n"
+                f"[text.dim]• Use your regular Zoho email and password[/text.dim]\n"
+                f"[text.dim]• Email access only (no calendar support)[/text.dim]\n"
+                f"[text.dim]• Works with any Zoho Mail account[/text.dim]\n\n"
+                f"[warning]Note: Your password will be encrypted and stored securely[/warning]"
             ),
             border_style="info",
             padding=(1, 2),
@@ -143,35 +213,35 @@ class LoginScreen:
 
         self._console.print()
 
-        email = self._text_input.prompt_email("Gmail Address")
+        email = self._text_input.prompt_email("Zoho Email Address")
         
         if not email:
             return False, None
 
-        if not email.endswith("@gmail.com") and not email.endswith("@googlemail.com"):
+        if not email.endswith("@zoho.com") and not email.endswith("@zohomail.com"):
             self._console.print()
             proceed = self._text_input.prompt_confirm(
-                f"'{email}' doesn't appear to be a Gmail address. Continue anyway?",
-                default=False,
+                f"'{email}' doesn't appear to be a Zoho address. Continue anyway?",
+                default=True,
             )
             if not proceed:
-                return self._login_with_app_password()
+                return self._login_with_zoho()
 
         self._console.print()
         
-        app_password = self._password_input.prompt_app_password()
+        password = self._password_input.prompt("Zoho Password")
         
-        if not app_password:
+        if not password:
             return False, None
 
         self._console.print()
         
         status_text = Text()
         status_text.append(f"{Symbols.LOADING} ", style="info")
-        status_text.append("Authenticating with Gmail...", style="text")
+        status_text.append("Authenticating with Zoho Mail...", style="text")
         self._console.print(status_text)
 
-        success, message = self._auth_manager.authenticate_with_app_password(email, app_password)
+        success, message = self._auth_manager.authenticate_with_zoho(email, password)
 
         self._console.print()
 
@@ -192,112 +262,7 @@ class LoginScreen:
             retry = self._text_input.prompt_confirm("Would you like to try again?", default=True)
             
             if retry:
-                return self._login_with_app_password()
-            
-            return False, None
-
-    def _login_with_oauth(self) -> Tuple[bool, Optional[str]]:
-        self._clear_screen()
-        self._header.render(
-            title=settings.app.app_name,
-            subtitle="OAuth 2.0 Login",
-        )
-
-        self._console.print()
-        
-        status_text = Text()
-        status_text.append(f"{Symbols.LOADING} ", style="info")
-        status_text.append("Generating authorization URL...", style="text")
-        self._console.print(status_text)
-
-        auth_url, message = self._auth_manager.get_oauth_authorization_url()
-
-        if not auth_url:
-            self._console.print()
-            self._console.print(Theme.format_status(message, "error"))
-            input("\nPress Enter to continue...")
-            return self._show_auth_options()
-
-        self._console.print()
-        
-        info_panel = Panel(
-            Text.from_markup(
-                f"{Symbols.INFO} [text]Complete the following steps:[/text]\n\n"
-                f"[text.dim]1. Open the URL below in your browser[/text.dim]\n"
-                f"[text.dim]2. Sign in with your Google account[/text.dim]\n"
-                f"[text.dim]3. Grant the requested permissions[/text.dim]\n"
-                f"[text.dim]4. Copy the authorization code[/text.dim]\n"
-                f"[text.dim]5. Paste it below[/text.dim]"
-            ),
-            border_style="info",
-            padding=(1, 2),
-        )
-        self._console.print(info_panel)
-
-        self._console.print()
-        
-        url_text = Text()
-        url_text.append("Authorization URL:\n", style="text.dim")
-        url_text.append(auth_url, style="link")
-        self._console.print(url_text)
-
-        self._console.print()
-        
-        open_browser = self._text_input.prompt_confirm(
-            "Would you like to open this URL in your browser?",
-            default=True,
-        )
-
-        if open_browser:
-            success, _ = self._auth_manager.open_oauth_in_browser()
-            if success:
-                self._console.print(Theme.format_status("Browser opened", "success"))
-            else:
-                self._console.print(Theme.format_status(
-                    "Could not open browser. Please copy the URL manually.",
-                    "warning"
-                ))
-
-        self._console.print()
-        
-        auth_code = self._text_input.prompt(
-            "Authorization Code",
-            required=True,
-            placeholder="Paste the code from Google here",
-        )
-
-        if not auth_code:
-            return False, None
-
-        self._console.print()
-        
-        status_text = Text()
-        status_text.append(f"{Symbols.LOADING} ", style="info")
-        status_text.append("Completing authentication...", style="text")
-        self._console.print(status_text)
-
-        success, message = self._auth_manager.authenticate_with_oauth_code(auth_code)
-
-        self._console.print()
-
-        if success:
-            self._console.print(Theme.format_status(message, "success"))
-            self._console.print()
-            
-            self._console.print(Text.from_markup(
-                f"[text.dim]Your OAuth tokens have been securely encrypted and stored.[/text.dim]"
-            ))
-            
-            input("\nPress Enter to continue...")
-            return True, self._auth_manager.current_email
-        else:
-            self._console.print(Theme.format_status(message, "error"))
-            self._console.print()
-            
-            retry = self._text_input.prompt_confirm("Would you like to try again?", default=True)
-            
-            if retry:
-                return self._login_with_oauth()
+                return self._login_with_zoho()
             
             return False, None
 

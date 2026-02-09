@@ -32,7 +32,7 @@ class MailboxApp:
         self._email_client = get_email_client()
         self._calendar_client = get_calendar_client()
         
-        self._current_screen = "login"
+        self._current_screen = "login"  
         self._screen_data = {}
         self._running = False
 
@@ -115,6 +115,10 @@ class MailboxApp:
         return handler()
 
     def _handle_login(self) -> tuple:
+        """
+        ALWAYS show login screen - no auto-login.
+        User must explicitly enter credentials every time app starts.
+        """
         screen = LoginScreen(self._console, self._auth_manager)
         success, email = screen.show()
 
@@ -304,7 +308,7 @@ class MailboxApp:
             transient=False,
         ) as progress:
             
-            main_task = progress.add_task("[primary]Connecting to Gmail...", total=100)
+            main_task = progress.add_task("[primary]Connecting to email server...", total=100)
             progress.update(main_task, completed=10)
             
             progress.update(main_task, description="[primary]Fetching emails...")
@@ -354,9 +358,12 @@ class MailboxApp:
         self._console.print()
 
     def _cleanup(self) -> None:
+        """
+        Clean up resources when app closes.
+        Note: We logout from session but keep credentials in database.
+        """
         if self._auth_manager.is_authenticated:
-            self._auth_manager.app_password_handler.logout()
-            self._auth_manager.oauth_handler.logout()
+            self._auth_manager.logout()  
 
     def _setup_logging(self) -> None:
         log_level = os.getenv("LOG_LEVEL", "WARNING").upper()

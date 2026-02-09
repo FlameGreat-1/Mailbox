@@ -14,6 +14,7 @@ from googleapiclient.discovery import build, Resource
 
 from src.config import settings
 from src.auth.encryption import encrypt, decrypt
+from src.auth.oauth_callback import OAuthCallbackServer
 from src.database.models import Credential, AuthType
 from src.database.repositories import CredentialsRepository
 
@@ -52,50 +53,76 @@ class OAuthHandler:
     def has_client_secret(self) -> bool:
         return CLIENT_SECRET_FILE.exists()
 
-    def get_authorization_url(self) -> Tuple[Optional[str], str]:
+    def authenticate(self) -> Tuple[bool, str]:
+        """
+        Automatic OAuth authentication with callback server.
+        Opens browser, waits for user authorization, captures code automatically.
+        """
         if not self.has_client_secret():
-            return None, "client_secret.json not found in credentials folder"
+            return False, "client_secret.json not found in credentials folder"
 
         try:
+            
+            # Prepare OAuth scopes
+            scopes = list(settings.google.scopes)
+            
+            openid_scopes = [
+                'openid',
+                'https://www.googleapis.com/auth/userinfo.email',
+                'https://www.googleapis.com/auth/userinfo.profile'
+            ]
+            
+            for scope in openid_scopes:
+                if scope not in scopes:
+                    scopes.append(scope)
+            
+            # Create OAuth flow
             self._flow = Flow.from_client_secrets_file(
                 str(CLIENT_SECRET_FILE),
-                scopes=list(settings.google.scopes),
+                scopes=scopes,
                 redirect_uri=settings.google.redirect_uri,
             )
 
-            auth_url, _ = self._flow.authorization_url(
+            # Generate authorization URL
+            auth_url, state = self._flow.authorization_url(
                 access_type="offline",
                 include_granted_scopes="true",
                 prompt="consent",
             )
 
-            return auth_url, "Authorization URL generated"
+            # Start callback server
+            callback_server = OAuthCallbackServer(
+                port=settings.google.callback_port,
+                state=state
+            )
+            
+            logger.info("Starting OAuth callback server...")
+            callback_server.start()
 
-        except Exception as e:
-            logger.error(f"Failed to generate authorization URL: {e}")
-            return None, f"Failed to generate authorization URL: {str(e)}"
+            # Open browser for user authorization
+            logger.info("Opening browser for Google sign-in...")
+            try:
+                webbrowser.open(auth_url)
+            except Exception as e:
+                callback_server.stop()
+                logger.error(f"Failed to open browser: {e}")
+                return False, f"Failed to open browser. Please visit manually: {auth_url}"
 
-    def open_authorization_in_browser(self) -> Tuple[bool, str]:
-        auth_url, message = self.get_authorization_url()
+            # Wait for authorization code (blocks until user authorizes or timeout)
+            logger.info("Waiting for user authorization...")
+            authorization_code = callback_server.wait_for_code(timeout=300)  # 5 minutes timeout
+            
+            callback_server.stop()
 
-        if not auth_url:
-            return False, message
+            if not authorization_code:
+                return False, "Authorization timeout or cancelled by user"
 
-        try:
-            webbrowser.open(auth_url)
-            return True, auth_url
-        except Exception as e:
-            logger.error(f"Failed to open browser: {e}")
-            return False, f"Failed to open browser. Please visit: {auth_url}"
-
-    def authenticate_with_code(self, authorization_code: str) -> Tuple[bool, str]:
-        if not self._flow:
-            return False, "Authorization flow not initialized. Call get_authorization_url first"
-
-        try:
+            # Exchange authorization code for credentials
+            logger.info("Exchanging authorization code for credentials...")
             self._flow.fetch_token(code=authorization_code)
             credentials = self._flow.credentials
 
+            # Get user email from Gmail API
             gmail_service = build("gmail", "v1", credentials=credentials)
             profile = gmail_service.users().getProfile(userId="me").execute()
             email = profile.get("emailAddress")
@@ -103,8 +130,10 @@ class OAuthHandler:
             if not email:
                 return False, "Failed to retrieve email address"
 
+            # Build calendar service
             calendar_service = build("calendar", "v3", credentials=credentials)
 
+            # Create session
             self._session = OAuthSession(
                 email=email,
                 credentials=credentials,
@@ -113,6 +142,7 @@ class OAuthHandler:
                 is_authenticated=True,
             )
 
+            # Store credentials in database
             self._store_credentials(email, credentials)
 
             logger.info(f"Successfully authenticated via OAuth: {email}")
@@ -122,11 +152,11 @@ class OAuthHandler:
             logger.error(f"OAuth authentication failed: {e}")
             return False, f"Authentication failed: {str(e)}"
 
-    def authenticate_from_stored(self) -> Tuple[bool, str]:
-        credential = CredentialsRepository.find_first()
+    def authenticate_from_stored(self, email: str) -> Tuple[bool, str]:
+        credential = CredentialsRepository.find_by_email(email)
 
         if not credential:
-            return False, "No stored credentials found"
+            return False, f"No stored credentials found for {email}"
 
         if credential.auth_type != AuthType.OAUTH:
             return False, "Stored credential is not OAuth type"

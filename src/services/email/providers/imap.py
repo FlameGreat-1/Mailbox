@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class IMAPProvider:
-    FOLDER_MAP = {
+    GMAIL_FOLDER_MAP = {
         "inbox": "INBOX",
         "sent": "[Gmail]/Sent Mail",
         "drafts": "[Gmail]/Drafts",
@@ -22,16 +22,26 @@ class IMAPProvider:
         "all": "[Gmail]/All Mail",
     }
 
-    def __init__(self, connection: imaplib.IMAP4_SSL):
+    STANDARD_FOLDER_MAP = {
+        "inbox": "INBOX",
+        "sent": "Sent",
+        "drafts": "Drafts",
+        "spam": "Spam",
+        "trash": "Trash",
+        "all": "INBOX",
+    }
+
+    def __init__(self, connection: imaplib.IMAP4_SSL, use_gmail_folders: bool = True):
         self._connection = connection
         self._current_folder: Optional[str] = None
+        self._folder_map = self.GMAIL_FOLDER_MAP if use_gmail_folders else self.STANDARD_FOLDER_MAP
 
     @property
     def connection(self) -> imaplib.IMAP4_SSL:
         return self._connection
 
     def select_folder(self, folder: str = "inbox") -> Tuple[bool, int]:
-        imap_folder = self.FOLDER_MAP.get(folder.lower(), folder)
+        imap_folder = self._folder_map.get(folder.lower(), folder)
 
         try:
             status, data = self._connection.select(imap_folder)
