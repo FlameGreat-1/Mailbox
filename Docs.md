@@ -1,3 +1,10 @@
+           A terminal-based email client with Google Calendar integration, built in Python.
+
+What This App Does:
+
+Mailbox is a terminal email client that connects to Gmail (via OAuth 2.0 or App Password) and Zoho Mail. It runs entirely in the terminal using the Rich library for styled output — think colorful panels, progress bars, and formatted text instead of a browser or desktop GUI. It also integrates Google Calendar (OAuth only) and caches everything locally in a MySQL database for offline access.   
+              
+              
                     ┌─────────────┐
                     │   config    │
                     │  settings   │
@@ -96,7 +103,7 @@
            │                    ┌──────────┴──────────┐
            │                    ▼                     ▼
            │           ┌──────────────┐      ┌──────────────┐
-           │           │ App Password │      │   OAuth 2.0  │
+           │           │App Pwd / Zoho│      │   OAuth 2.0  │
            │           │ flow         │      │   flow       │
            │           └──────────────┘      └──────────────┘
            │                    │                     │
@@ -151,18 +158,20 @@ The app follows a **layered architecture** with clear separation of concerns:
 
 #### **1. Configuration Layer** (/src/config/)
 - Centralized settings management with dataclass-based configs
-- Supports Database, Google, Email, and App configurations
+- Supports Database, Google, Email, Zoho, and App configurations
 - Environment variable loading via .env
 
 #### **2. Authentication Layer** (/src/auth/)
-- **Dual authentication methods:**
-  - **OAuth 2.0** - Full access (email + calendar)
-  - **App Password** - Email only, simpler setup
+- **Multiple authentication methods:**
+  - **OAuth 2.0** - Full access (email + calendar) with automatic browser flow
+  - **App Password** - Email only, via IMAP/SMTP
+  - **Zoho Mail** - Email only, via IMAP/SMTP
 - **Encryption Module** - Secure credential storage using cryptography.fernet
 - **Handlers:**
-  - oauth.py - OAuth 2.0 flow with automatic token refresh
+  - oauth.py - OAuth 2.0 flow with local callback server
   - app_password.py - Gmail App Password authentication
-- **Manager** - Unified interface for both auth methods
+  - zoho_mail.py - Zoho Mail authentication
+- **Manager** - Unified interface for all auth methods
 
 #### **3. Database Layer** (/src/database/)
 - **Connection Manager** - Singleton pattern with connection pooling
@@ -216,9 +225,9 @@ The app follows a **layered architecture** with clear separation of concerns:
 
 ### **Key Features Implementation**
 
- **Email Management** - IMAP/SMTP (App Password) + Gmail API (OAuth)
+ **Email Management** - IMAP/SMTP (App Password / Zoho) + Gmail API (OAuth)
  **Calendar Integration** - Google Calendar API (OAuth only)
- **Dual Authentication** - OAuth 2.0 and App Password support
+ **Multi-Provider Authentication** - OAuth 2.0, App Password, and Zoho support
  **Data Caching** - Local MySQL database for offline access
  **Encryption** - Encrypted credential storage using Fernet
  **Auto-login** - Persistent session restoration
@@ -230,8 +239,8 @@ The app follows a **layered architecture** with clear separation of concerns:
 
 - **Gmail API** - Email read/send for OAuth users
 - **Google Calendar API** - Calendar access for OAuth users
-- **IMAP/SMTP** - Standard email protocols for App Password users
-- **OAuth 2.0 Flow** - Browser-based authentication
+- **IMAP/SMTP** - Standard email protocols for App Password & Zoho users
+- **OAuth 2.0 Flow** - Automatic browser-based authentication with local callback
 
 ### **Project Structure Summary**
 
@@ -243,3 +252,59 @@ The app follows a **layered architecture** with clear separation of concerns:
 - **Auth** - Authentication and security
 - **Sync** - Data synchronization layer
 - **UI** - User interface and screens
+
+
+---
+
+## End-to-End Flow
+
+Here's exactly what happens from the moment you run `python src/main.py`:
+
+### 1. Startup
+- `main.py` calls `run_app()` → creates `MailboxApp` → calls `app.run()`
+- `run()` sets up file-based logging (`mailbox.log`), shows a startup progress bar (config → DB connection test → services init)
+
+### 2. Login
+- Always shows login screen (no auto-login)
+- User picks: **"Sign in with Google"** or **"Zoho Mail"**
+- **Google OAuth path**: starts a threaded HTTP server on `localhost:8080`, opens browser, waits up to 5 minutes for the user to authorize, captures the authorization code from the redirect, exchanges it for tokens, builds Gmail + Calendar API services, encrypts and stores everything in MySQL
+- **Zoho path**: prompts for email + password, connects via IMAP, encrypts and stores credentials
+
+### 3. Initial Sync
+- After successful login, progress bar shows: "Fetching emails..." → "Fetching calendar events..."
+- Fetches latest 20 emails from provider (IMAP or Gmail API) and stores in MySQL
+- If OAuth, also fetches 30 days of calendar events
+- Shows summary: "X new emails, Y new events"
+
+### 4. Main Menu (Dashboard)
+- Displays: unread count, upcoming event count, 3 most recent emails, today's events
+- 6 options: Inbox, Compose, Calendar, Search, Sync, Settings
+
+### 5. Using the App
+- **Inbox**: Paginated email list from MySQL → select email → view full content (fetches body from provider if not cached) → reply/forward
+- **Compose**: To/CC/BCC/Subject/Body inputs → sends via SMTP or Gmail API
+- **Search**: Searches local DB first, falls back to provider search
+- **Calendar**: Today/Week/Month views of events → view details → open meeting links
+- **Sync**: Manual sync with progress bar — re-fetches from providers and updates MySQL
+- **Settings**: Preferences and logout (with option to clear stored credentials)
+
+### 6. Shutdown
+- `Ctrl+C` or `q` → `_cleanup()` logs out the session (clears in-memory state) but **keeps encrypted credentials in MySQL** so next launch can restore the session
+
+---
+
+## Key Design Decisions
+
+1. **Singleton pattern everywhere** — ensures exactly one DB pool, one auth session, one encryption key, one sync manager. Prevents resource leaks and inconsistent state.
+
+2. **Exponential backoff retries** — every external call (IMAP, SMTP, Gmail API, Calendar API) retries up to 3 times with delays of 1s, 2s, 4s. Handles transient network issues without crashing.
+
+3. **Provider abstraction** — `EmailClient` doesn't care whether it's talking to IMAP or Gmail API. The `AuthManager.active_method` enum routes to the correct provider. This means adding a new email provider (e.g., Outlook) only requires a new handler + provider, no changes to the client.
+
+4. **Encrypt-at-rest** — credentials never exist as plaintext in MySQL. Even the access tokens are individually encrypted. The encryption key lives only in `.env` (or memory).
+
+5. **Local OAuth callback server** — instead of asking users to copy-paste authorization codes, the app spins up a temporary HTTP server, captures the redirect automatically, and shows a styled HTML page confirming success/failure. The server validates the `state` parameter to prevent CSRF attacks.
+
+6. **Screen state machine** — the UI uses a simple `_current_screen` string pattern instead of a framework. Each handler returns `(next_screen, data)`, making navigation explicit and debuggable.
+
+7. **DB-first reads** — email list views always read from MySQL (fast, offline-capable). Full email bodies are fetched from the provider only when actually opened, then cached.
